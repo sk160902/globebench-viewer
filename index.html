@@ -41,6 +41,31 @@
   .notes { flex:1; min-width:180px; }
   .muted { color:var(--mut); }
   .verdict-tag { font-size:12px; }
+  /* per-item performance + open answers */
+  details.block { margin-top:10px; border-top:1px solid var(--line); padding-top:8px; }
+  details.block > summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--fg); user-select:none; }
+  details.block[open] > summary { margin-bottom:8px; }
+  table.perf { border-collapse:collapse; font-size:12.5px; margin-top:6px; width:100%; max-width:460px; }
+  table.perf th, table.perf td { border:1px solid var(--line); padding:4px 8px; text-align:center; }
+  table.perf th { color:var(--mut); font-weight:600; }
+  table.perf td.model { text-align:left; }
+  td.all  { background:#15351f; color:#bff0cc; }
+  td.mix  { background:#3a3413; color:#f0e3a0; }
+  td.none { background:#3a1815; color:#f0b3ad; }
+  td.na   { color:var(--mut); }
+  .legend { font-size:11px; color:var(--mut); margin-top:4px; }
+  .oa { margin:6px 0; font-size:12.5px; }
+  .oa .m { color:var(--mut); }
+  .oa .txt { white-space:pre-wrap; }
+  .oa .mode { font-size:11px; color:var(--mut); margin-left:4px; }
+  /* global leaderboard */
+  .lbwrap { max-width:920px; margin:0 auto 14px; }
+  table.lb { border-collapse:collapse; font-size:13px; width:100%; }
+  table.lb th, table.lb td { border:1px solid var(--line); padding:6px 10px; text-align:center; }
+  table.lb th { color:var(--mut); }
+  table.lb td.model { text-align:left; }
+  table.lb td.bar { padding:0; }
+  .barfill { height:18px; background:var(--route); border-radius:3px; }
 </style>
 </head>
 <body>
@@ -60,10 +85,18 @@
     <button id="reset">Reset verdicts</button>
   </div>
 </header>
+<div class="lbwrap">
+  <details class="block" id="lbBox">
+    <summary>Overall model leaderboard (8 models, 3 seeds)</summary>
+    <div id="lbTable"></div>
+  </details>
+</div>
 <main id="list"></main>
 <script src="combined_data.js"></script>
 <script>
-const DATA = (window.GLOBEBENCH_COMBINED || {scenarios:[]}).scenarios;
+const PAYLOAD = window.GLOBEBENCH_COMBINED || {scenarios:[], leaderboard:[]};
+const DATA = PAYLOAD.scenarios;
+const LEADERBOARD = PAYLOAD.leaderboard || [];
 const KEY = "globebench_combined_verdicts_v1";
 const verdicts = JSON.parse(localStorage.getItem(KEY) || "{}");
 const save = () => localStorage.setItem(KEY, JSON.stringify(verdicts));
@@ -115,6 +148,36 @@ function render(){
       c.appendChild(ul);
     }
     c.appendChild(el('div','gold','Gold answer: '+(s.gold.answer || s.gold.choice_id || '?')));
+
+    // --- per-item model performance (seeds correct / total, closed-book vs web-search) ---
+    if(s.perf && s.perf.length){
+      const d=el('details','block'); d.appendChild(el('summary',null,'Model performance on this item'));
+      const cls=(cell)=>{ if(!cell || !cell.t) return 'na'; if(cell.c===cell.t) return 'all'; if(cell.c===0) return 'none'; return 'mix'; };
+      const txt=(cell)=> (cell && cell.t) ? (cell.c+'/'+cell.t) : '–';
+      let h='<table class="perf"><tr><th>Model</th><th>Closed-book</th><th>Web-search</th></tr>';
+      s.perf.forEach(p=>{
+        h+='<tr><td class="model">'+p.model+'</td>'
+          +'<td class="'+cls(p.none)+'">'+txt(p.none)+'</td>'
+          +'<td class="'+(p.open_model?'na':cls(p.tools))+'">'+(p.open_model?'n/a':txt(p.tools))+'</td></tr>';
+      });
+      h+='</table><div class="legend">Seeds correct / total. Green = all, yellow = mixed, red = none. Open-weight models have no native web search (n/a).</div>';
+      const box=el('div'); box.innerHTML=h; d.appendChild(box); c.appendChild(d);
+    }
+
+    // --- open-ended answers per model ---
+    if(s.open_answers && s.open_answers.length){
+      const d=el('details','block'); d.appendChild(el('summary',null,'Open-ended answers'));
+      s.open_answers.forEach(o=>{
+        const wrap=el('div','oa');
+        wrap.appendChild(el('span','m', o.model+': '));
+        if(o.none){ const t=el('span','txt', o.none); wrap.appendChild(t); }
+        else wrap.appendChild(el('span','muted','(no response)'));
+        if(o.tools){ wrap.appendChild(el('span','mode','[web-search: ')); wrap.appendChild(el('span','txt', o.tools)); wrap.appendChild(el('span','mode',']')); }
+        d.appendChild(wrap);
+      });
+      c.appendChild(d);
+    }
+
     // actions
     const a=el('div','actions');
     const v=verdicts[s.scenario_id]||{};
@@ -146,6 +209,20 @@ document.getElementById('exportCsv').onclick=()=>{
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='globebench_human_verdicts.csv'; a.click();
 };
 document.getElementById('reset').onclick=()=>{ if(confirm('Clear all verdicts?')){ for(const k in verdicts) delete verdicts[k]; save(); render(); counts(); } };
+function renderLeaderboard(){
+  if(!LEADERBOARD.length) return;
+  let h='<table class="lb"><tr><th>Model</th><th>MCQ closed-book %</th><th>MCQ web-search %</th><th>Open-answer %</th></tr>';
+  LEADERBOARD.forEach(r=>{
+    const tools = r.open_model ? '<span class="muted">n/a</span>' : (r.mcq_tools==null?'–':r.mcq_tools);
+    h+='<tr><td class="model">'+r.model+'</td>'
+      +'<td>'+(r.mcq_none==null?'–':r.mcq_none)+'</td>'
+      +'<td>'+tools+'</td>'
+      +'<td>'+(r.open_none==null?'–':r.open_none)+'</td></tr>';
+  });
+  h+='</table><div class="legend">Decision accuracy (% correct), mean over 3 seeds across all 98 items. Web-search uses each model\'s own native search; open-weight models have none.</div>';
+  document.getElementById('lbTable').innerHTML=h;
+}
+renderLeaderboard();
 ['axis','family','status','search'].forEach(id=>document.getElementById(id).addEventListener('input',render));
 render(); counts();
 </script>
