@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GlobeBench Combined — Human Validation</title>
+<style>
+  :root { --bg:#0f1419; --card:#1a212b; --line:#2b3440; --fg:#e6edf3; --mut:#8b98a8;
+          --route:#4f9cf9; --knowledge:#f0a35e; --image:#7ee0a1; --good:#2ea043; --bad:#d4534a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:#0f1419ee; backdrop-filter:blur(6px);
+           border-bottom:1px solid var(--line); padding:12px 18px; }
+  h1 { font-size:16px; margin:0 0 8px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  select, input[type=text], button { background:var(--card); color:var(--fg); border:1px solid var(--line);
+           border-radius:7px; padding:6px 10px; font-size:13px; }
+  button { cursor:pointer; }
+  button:hover { border-color:#4a5568; }
+  .stat { color:var(--mut); font-size:13px; margin-left:4px; }
+  .stat b { color:var(--fg); }
+  main { padding:16px; max-width:920px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:11px; padding:14px 16px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; align-items:center; }
+  .chip { font-size:11px; padding:2px 8px; border-radius:20px; border:1px solid var(--line); color:var(--mut); }
+  .chip.route { color:var(--route); border-color:var(--route); }
+  .chip.knowledge { color:var(--knowledge); border-color:var(--knowledge); }
+  .chip.image { color:var(--image); border-color:var(--image); }
+  .q { font-size:15px; margin:6px 0 10px; }
+  .imgwrap { margin:8px 0 12px; }
+  .imgwrap img { max-width:100%; border-radius:8px; border:1px solid var(--line); display:block; }
+  .opts { list-style:none; padding:0; margin:0 0 6px; }
+  .opt { padding:5px 10px; border:1px solid var(--line); border-radius:7px; margin-bottom:5px; display:flex; gap:8px; }
+  .opt.correct { border-color:var(--good); background:#13351f; }
+  .opt .id { color:var(--mut); width:18px; }
+  .gold { color:var(--good); font-size:12.5px; margin:4px 0 10px; }
+  .actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:10px; }
+  .vbtn { padding:6px 14px; }
+  .vbtn.on-good { background:var(--good); border-color:var(--good); color:#fff; }
+  .vbtn.on-bad { background:var(--bad); border-color:var(--bad); color:#fff; }
+  .notes { flex:1; min-width:180px; }
+  .muted { color:var(--mut); }
+  .verdict-tag { font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GlobeBench Combined — Human Validation</h1>
+  <div class="bar">
+    <select id="axis"><option value="">All axes</option></select>
+    <select id="family"><option value="">All families</option></select>
+    <select id="status">
+      <option value="">All</option><option value="unreviewed">Unreviewed</option>
+      <option value="valid">Valid</option><option value="invalid">Invalid</option>
+    </select>
+    <input type="text" id="search" placeholder="search question / place…" style="min-width:200px" />
+    <span class="stat" id="counts"></span>
+    <button id="exportJson">Export JSON</button>
+    <button id="exportCsv">Export CSV</button>
+    <button id="reset">Reset verdicts</button>
+  </div>
+</header>
+<main id="list"></main>
+<script src="combined_data.js"></script>
+<script>
+const DATA = (window.GLOBEBENCH_COMBINED || {scenarios:[]}).scenarios;
+const KEY = "globebench_combined_verdicts_v1";
+const verdicts = JSON.parse(localStorage.getItem(KEY) || "{}");
+const save = () => localStorage.setItem(KEY, JSON.stringify(verdicts));
+const el = (t, c, h) => { const e=document.createElement(t); if(c)e.className=c; if(h!==undefined)e.innerHTML=h; return e; };
+
+// populate filters
+const axisSel=document.getElementById('axis'), famSel=document.getElementById('family');
+[...new Set(DATA.map(s=>s.axis))].sort().forEach(a=>axisSel.add(new Option(a,a)));
+[...new Set(DATA.map(s=>s.task_family))].sort().forEach(f=>famSel.add(new Option(f,f)));
+
+function passes(s){
+  const ax=axisSel.value, fam=famSel.value, st=document.getElementById('status').value;
+  const q=document.getElementById('search').value.toLowerCase();
+  if(ax && s.axis!==ax) return false;
+  if(fam && s.task_family!==fam) return false;
+  const v=verdicts[s.scenario_id];
+  if(st==='unreviewed' && v && v.verdict) return false;
+  if(st==='valid' && !(v && v.verdict==='valid')) return false;
+  if(st==='invalid' && !(v && v.verdict==='invalid')) return false;
+  if(q && !(s.open_prompt.toLowerCase().includes(q) || (s.place||'').toLowerCase().includes(q))) return false;
+  return true;
+}
+
+function counts(){
+  const total=DATA.length;
+  const v=Object.values(verdicts);
+  const good=v.filter(x=>x.verdict==='valid').length, bad=v.filter(x=>x.verdict==='invalid').length;
+  document.getElementById('counts').innerHTML =
+    `<b>${good+bad}</b>/${total} reviewed · <span style="color:var(--good)">${good} valid</span> · <span style="color:var(--bad)">${bad} invalid</span>`;
+}
+
+function render(){
+  const root=document.getElementById('list'); root.innerHTML='';
+  DATA.filter(passes).forEach(s=>{
+    const c=el('div','card');
+    const chips=el('div','chips');
+    chips.appendChild(el('span','chip '+s.axis, s.axis));
+    chips.appendChild(el('span','chip', s.task_family));
+    if(s.place) chips.appendChild(el('span','chip', s.place));
+    chips.appendChild(el('span','chip', s.scenario_id));
+    c.appendChild(chips);
+    if(s.image_path){ const w=el('div','imgwrap'); const im=el('img'); im.src=s.image_path; im.loading='lazy';
+      im.onerror=()=>{im.replaceWith(el('div','muted','[image not found: '+s.image_path+']'));}; w.appendChild(im); c.appendChild(w); }
+    c.appendChild(el('div','q', s.open_prompt));
+    if(s.options && s.options.length){
+      const ul=el('ul','opts');
+      s.options.forEach(o=>{ const li=el('li','opt'+(o.correct?' correct':''));
+        li.appendChild(el('span','id', o.id+'.')); li.appendChild(el('span','', o.text + (o.correct?'  ✓':''))); ul.appendChild(li); });
+      c.appendChild(ul);
+    }
+    c.appendChild(el('div','gold','Gold answer: '+(s.gold.answer || s.gold.choice_id || '?')));
+    // actions
+    const a=el('div','actions');
+    const v=verdicts[s.scenario_id]||{};
+    const gb=el('button','vbtn'+(v.verdict==='valid'?' on-good':''),'✓ Valid');
+    const bb=el('button','vbtn'+(v.verdict==='invalid'?' on-bad':''),'✗ Invalid');
+    const notes=el('input','notes'); notes.type='text'; notes.placeholder='notes (optional)'; notes.value=v.notes||'';
+    gb.onclick=()=>{ verdicts[s.scenario_id]={verdict:'valid',notes:notes.value}; save(); render(); counts(); };
+    bb.onclick=()=>{ verdicts[s.scenario_id]={verdict:'invalid',notes:notes.value}; save(); render(); counts(); };
+    notes.onchange=()=>{ verdicts[s.scenario_id]={verdict:(verdicts[s.scenario_id]||{}).verdict||'', notes:notes.value}; save(); };
+    a.append(gb,bb,notes);
+    c.appendChild(a);
+    root.appendChild(c);
+  });
+  if(!root.children.length) root.appendChild(el('div','muted','No scenarios match the filters.'));
+}
+
+function exportRows(){
+  return DATA.map(s=>{ const v=verdicts[s.scenario_id]||{}; return {
+    scenario_id:s.scenario_id, axis:s.axis, task_family:s.task_family, place:s.place,
+    verdict:v.verdict||'', notes:(v.notes||'').replace(/\n/g,' '), gold:s.gold.answer||s.gold.choice_id||'' }; });
+}
+document.getElementById('exportJson').onclick=()=>{
+  const blob=new Blob([JSON.stringify(exportRows(),null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='globebench_human_verdicts.json'; a.click();
+};
+document.getElementById('exportCsv').onclick=()=>{
+  const rows=exportRows(); const cols=Object.keys(rows[0]);
+  const csv=[cols.join(',')].concat(rows.map(r=>cols.map(c=>'"'+String(r[c]).replace(/"/g,'""')+'"').join(','))).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='globebench_human_verdicts.csv'; a.click();
+};
+document.getElementById('reset').onclick=()=>{ if(confirm('Clear all verdicts?')){ for(const k in verdicts) delete verdicts[k]; save(); render(); counts(); } };
+['axis','family','status','search'].forEach(id=>document.getElementById(id).addEventListener('input',render));
+render(); counts();
+</script>
+</body>
+</html>
