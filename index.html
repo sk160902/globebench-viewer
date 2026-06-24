@@ -210,7 +210,7 @@ document.getElementById('exportCsv').onclick=()=>{
 };
 document.getElementById('reset').onclick=()=>{ if(confirm('Clear all verdicts?')){ for(const k in verdicts) delete verdicts[k]; save(); render(); counts(); } };
 function renderLeaderboard(){
-  if(!LEADERBOARD.length) return;
+  if(!LEADERBOARD.length){ const b=document.getElementById('lbBox'); if(b) b.style.display='none'; return; }
   let h='<table class="lb"><tr><th>Model</th><th>MCQ closed-book %</th><th>MCQ tool use %</th><th>Open-answer %</th></tr>';
   LEADERBOARD.forEach(r=>{
     const tools = r.open_model ? '<span class="muted">n/a</span>' : (r.mcq_tools==null?'–':r.mcq_tools);
