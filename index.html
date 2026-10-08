@@ -154,16 +154,17 @@ function render(){
       const d=el('details','block'); d.appendChild(el('summary',null,'Model performance on this item'));
       const cls=(cell)=>{ if(!cell || !cell.t) return 'na'; if(cell.c===cell.t) return 'all'; if(cell.c===0) return 'none'; return 'mix'; };
       const txt=(cell)=> (cell && cell.t) ? (cell.c+'/'+cell.t) : '–';
-      const hasOpen=s.perf.some(p=>p.open_none||p.open_tools);
+      const hasOpen=s.perf.some(p=>p.open_final);
       let h='<table class="perf"><tr><th rowspan="2">Model</th><th colspan="2">Multiple choice</th>'
-        +(hasOpen?'<th colspan="2">Open-ended</th>':'')+'</tr><tr><th>Closed-book</th><th>Tool use</th>'
-        +(hasOpen?'<th>Closed-book</th><th>Tool use</th>':'')+'</tr>';
+        +(hasOpen?'<th>Open-ended</th>':'')+'</tr><tr><th>Closed-book</th><th>Tool use</th>'
+        +(hasOpen?'<th>Run 1, closed-book</th>':'')+'</tr>';
+      const ocell=(f)=> !f ? '<td class="na">–</td>' : '<td class="'+(f.ok?'all':'none')+'" title="'+String(f.reason).replace(/"/g,'&quot;')+'">'+(f.ok?'✓':'✗')+'</td>';
       const cell=(p,c,tool)=> (tool&&p.open_model) ? '<td class="na">n/a</td>' : '<td class="'+cls(c)+'">'+txt(c)+'</td>';
       s.perf.forEach(p=>{
         h+='<tr><td class="model">'+p.model+'</td>'+cell(p,p.none,false)+cell(p,p.tools,true)
-          +(hasOpen?cell(p,p.open_none,false)+cell(p,p.open_tools,true):'')+'</tr>';
+          +(hasOpen?ocell(p.open_final):'')+'</tr>';
       });
-      h+='</table><div class="legend">Seeds correct / total. Green = all, yellow = mixed, red = none. Open-ended counts as correct when the answer names the gold answer. Open-weight models have no native tools (n/a).</div>';
+      h+='</table><div class="legend">Seeds correct / total. Green = all, yellow = mixed, red = none. Multiple choice: seeds correct / total; green = all, yellow = mixed, red = none. Open-ended: first closed-book run, graded by hand; correct only if the final pick is the gold answer (for chains, the gold branch). Hover a mark for the reason. Open-weight models have no native tools (n/a).</div>';
       const box=el('div'); box.innerHTML=h; d.appendChild(box); c.appendChild(d);
     }
 
@@ -173,10 +174,10 @@ function render(){
       s.open_answers.forEach(o=>{
         const wrap=el('div','oa');
         wrap.appendChild(el('span','m', o.model+': '));
-        const mark=(ok)=> ok===undefined ? null : el('span','mode', ok ? '<span style="color:var(--good)">✓ matches gold</span> ' : '<span style="color:var(--bad)">✗ no match</span> ');
-        if(o.none){ const mk=mark(o.none_ok); if(mk) wrap.appendChild(mk); wrap.appendChild(el('span','txt', o.none)); }
+        const mark=(ok,why)=>{ if(ok===undefined) return null; const m=el('span','mode', ok ? '<span style="color:var(--good)">✓ correct</span> ' : '<span style="color:var(--bad)">✗ incorrect</span> '); if(why) m.title=why; return m; };
+        if(o.none){ const mk=mark(o.none_ok,o.none_reason); if(mk) wrap.appendChild(mk); wrap.appendChild(el('span','txt', o.none)); if(o.none_reason) wrap.appendChild(el('div','mode','Grading: '+o.none_reason)); }
         else wrap.appendChild(el('span','muted','(no response)'));
-        if(o.tools){ wrap.appendChild(el('span','mode','[tool use: ')); const mk=mark(o.tools_ok); if(mk) wrap.appendChild(mk); wrap.appendChild(el('span','txt', o.tools)); wrap.appendChild(el('span','mode',']')); }
+        if(o.tools){ wrap.appendChild(el('span','mode','[tool use: ')); wrap.appendChild(el('span','txt', o.tools)); wrap.appendChild(el('span','mode',']')); }
         d.appendChild(wrap);
       });
       c.appendChild(d);
@@ -215,14 +216,15 @@ document.getElementById('exportCsv').onclick=()=>{
 document.getElementById('reset').onclick=()=>{ if(confirm('Clear all verdicts?')){ for(const k in verdicts) delete verdicts[k]; save(); render(); counts(); } };
 function renderLeaderboard(){
   if(!LEADERBOARD.length){ const b=document.getElementById('lbBox'); if(b) b.style.display='none'; return; }
-  let h='<table class="lb"><tr><th>Model</th><th>MCQ closed-book %</th><th>MCQ tool use %</th></tr>';
+  let h='<table class="lb"><tr><th>Model</th><th>MCQ closed-book %</th><th>MCQ tool use %</th><th>Open-ended run 1 %</th></tr>';
   LEADERBOARD.forEach(r=>{
     const tools = r.open_model ? '<span class="muted">n/a</span>' : (r.mcq_tools==null?'–':r.mcq_tools);
     h+='<tr><td class="model">'+r.model+'</td>'
       +'<td>'+(r.mcq_none==null?'–':r.mcq_none)+'</td>'
-      +'<td>'+tools+'</td></tr>';
+      +'<td>'+tools+'</td>'
+      +'<td>'+(r.open_final==null?'–':r.open_final)+'</td></tr>';
   });
-  h+='</table><div class="legend">Decision accuracy (% correct), mean over 3 seeds across all 600 items. Tool use lets each model call its own native tools (web search); open-weight models have none.</div>';
+  h+='</table><div class="legend">Decision accuracy (% correct), mean over 3 seeds across all 600 items. Tool use lets each model call its own native tools (web search); open-weight models have none. Open-ended: first closed-book run, graded by hand on the final pick.</div>';
   document.getElementById('lbTable').innerHTML=h;
 }
 renderLeaderboard();
