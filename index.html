@@ -45,7 +45,7 @@
   details.block { margin-top:10px; border-top:1px solid var(--line); padding-top:8px; }
   details.block > summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--fg); user-select:none; }
   details.block[open] > summary { margin-bottom:8px; }
-  table.perf { border-collapse:collapse; font-size:12.5px; margin-top:6px; width:100%; max-width:460px; }
+  table.perf { border-collapse:collapse; font-size:12.5px; margin-top:6px; width:100%; max-width:620px; }
   table.perf th, table.perf td { border:1px solid var(--line); padding:4px 8px; text-align:center; }
   table.perf th { color:var(--mut); font-weight:600; }
   table.perf td.model { text-align:left; }
@@ -154,13 +154,16 @@ function render(){
       const d=el('details','block'); d.appendChild(el('summary',null,'Model performance on this item'));
       const cls=(cell)=>{ if(!cell || !cell.t) return 'na'; if(cell.c===cell.t) return 'all'; if(cell.c===0) return 'none'; return 'mix'; };
       const txt=(cell)=> (cell && cell.t) ? (cell.c+'/'+cell.t) : '–';
-      let h='<table class="perf"><tr><th>Model</th><th>Closed-book</th><th>Tool use</th></tr>';
+      const hasOpen=s.perf.some(p=>p.open_none||p.open_tools);
+      let h='<table class="perf"><tr><th rowspan="2">Model</th><th colspan="2">Multiple choice</th>'
+        +(hasOpen?'<th colspan="2">Open-ended</th>':'')+'</tr><tr><th>Closed-book</th><th>Tool use</th>'
+        +(hasOpen?'<th>Closed-book</th><th>Tool use</th>':'')+'</tr>';
+      const cell=(p,c,tool)=> (tool&&p.open_model) ? '<td class="na">n/a</td>' : '<td class="'+cls(c)+'">'+txt(c)+'</td>';
       s.perf.forEach(p=>{
-        h+='<tr><td class="model">'+p.model+'</td>'
-          +'<td class="'+cls(p.none)+'">'+txt(p.none)+'</td>'
-          +'<td class="'+(p.open_model?'na':cls(p.tools))+'">'+(p.open_model?'n/a':txt(p.tools))+'</td></tr>';
+        h+='<tr><td class="model">'+p.model+'</td>'+cell(p,p.none,false)+cell(p,p.tools,true)
+          +(hasOpen?cell(p,p.open_none,false)+cell(p,p.open_tools,true):'')+'</tr>';
       });
-      h+='</table><div class="legend">Seeds correct / total. Green = all, yellow = mixed, red = none. Open-weight models have no native tools (n/a).</div>';
+      h+='</table><div class="legend">Seeds correct / total. Green = all, yellow = mixed, red = none. Open-ended counts as correct when the answer names the gold answer. Open-weight models have no native tools (n/a).</div>';
       const box=el('div'); box.innerHTML=h; d.appendChild(box); c.appendChild(d);
     }
 
@@ -170,9 +173,10 @@ function render(){
       s.open_answers.forEach(o=>{
         const wrap=el('div','oa');
         wrap.appendChild(el('span','m', o.model+': '));
-        if(o.none){ const t=el('span','txt', o.none); wrap.appendChild(t); }
+        const mark=(ok)=> ok===undefined ? null : el('span','mode', ok ? '<span style="color:var(--good)">✓ matches gold</span> ' : '<span style="color:var(--bad)">✗ no match</span> ');
+        if(o.none){ const mk=mark(o.none_ok); if(mk) wrap.appendChild(mk); wrap.appendChild(el('span','txt', o.none)); }
         else wrap.appendChild(el('span','muted','(no response)'));
-        if(o.tools){ wrap.appendChild(el('span','mode','[tool use: ')); wrap.appendChild(el('span','txt', o.tools)); wrap.appendChild(el('span','mode',']')); }
+        if(o.tools){ wrap.appendChild(el('span','mode','[tool use: ')); const mk=mark(o.tools_ok); if(mk) wrap.appendChild(mk); wrap.appendChild(el('span','txt', o.tools)); wrap.appendChild(el('span','mode',']')); }
         d.appendChild(wrap);
       });
       c.appendChild(d);
